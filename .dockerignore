@@ -1,0 +1,5 @@
+**
+!services/
+!services/orders/
+!services/orders/app.py
+!services/orders/healthcheck.py

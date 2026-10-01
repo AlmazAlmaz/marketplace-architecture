@@ -1,0 +1,70 @@
+@startuml
+!include <C4/C4_Container>
+
+title Marketplace - C4 Container diagram (target architecture)
+LAYOUT_TOP_DOWN()
+skinparam nodesep 45
+skinparam ranksep 60
+
+AddElementTag("bootstrap", $bgColor="#217A5B", $legendText="Only /health is implemented")
+AddRelTag("async", $lineStyle=DashedLine(), $lineColor="#9A6700", $textColor="#805400", $legendText="Asynchronous events, AMQPS")
+
+Person(buyer, "Buyer", "Browses a personalized feed and places orders")
+Person(seller, "Seller", "Manages product listings")
+System_Ext(psp, "Payment provider", "Hosted checkout, charges, refunds and signed webhooks")
+System_Ext(messaging, "Email / SMS provider", "Delivers order status notifications")
+
+System_Boundary(marketplace, "Marketplace") {
+    Container(web, "Web application", "TypeScript / React", "Buyer and seller interface")
+    Container(gateway, "API Gateway", "NGINX", "Routes public API requests and payment webhooks; TLS termination")
+
+    Container(users, "Users Service", "Python / HTTP API", "Accounts, roles, preferences and contacts")
+    Container(catalog, "Catalog Service", "Python / HTTP API", "Seller listings, categories, prices and publication status")
+    Container(feed, "Feed Service", "Python / HTTP API + event consumer", "Ranks a local product projection using preferences and popularity")
+    Container(orders, "Orders Service", "Python / HTTP API + event consumer", "Order lifecycle, immutable line snapshots and order totals", $tags="bootstrap")
+    Container(payments, "Payments Service", "Python / HTTP API + event consumer", "Payment attempts, commission calculation, financial records and refunds")
+    Container(notifications, "Notifications Service", "Python / event consumer", "Templates, contact projection, delivery jobs and retries")
+
+    ContainerQueue(events, "Event broker", "RabbitMQ", "Durable exchanges and per-consumer queues; transports events, not domain data storage")
+
+    ContainerDb(usersDb, "Users DB", "PostgreSQL", "Accounts, roles, credentials, preferences and contacts; Users only")
+    ContainerDb(catalogDb, "Catalog DB", "PostgreSQL", "Listings, seller IDs, categories, prices and media URLs; Catalog only")
+    ContainerDb(feedDb, "Feed DB", "PostgreSQL", "Rebuildable product/preference projections and popularity; Feed only")
+    ContainerDb(ordersDb, "Orders DB", "PostgreSQL", "Orders, line snapshots, totals and state history; Orders only")
+    ContainerDb(paymentsDb, "Payments DB", "PostgreSQL", "Attempts, provider references, commissions and ledger entries; Payments only")
+    ContainerDb(notificationsDb, "Notifications DB", "PostgreSQL", "Contact projection, templates, jobs and delivery results; Notifications only")
+}
+
+Rel(buyer, web, "Browses and orders", "HTTPS")
+Rel(seller, web, "Manages listings", "HTTPS")
+Rel(web, gateway, "Calls public API", "HTTPS / JSON, sync")
+Rel(web, psp, "Opens hosted checkout", "HTTPS, sync")
+Rel(gateway, users, "Account and session requests", "HTTP / JSON, sync")
+Rel(gateway, catalog, "Listing CRUD and product details", "HTTP / JSON, sync")
+Rel(gateway, feed, "Requests ranked feed", "HTTP / JSON, sync")
+Rel(gateway, orders, "Places and reads orders", "HTTP / JSON, sync")
+Rel(gateway, payments, "Reads checkout status; forwards signed webhooks", "HTTP / JSON, sync")
+Rel(orders, catalog, "Validates listings and snapshots current prices", "HTTP / JSON, sync")
+Rel(payments, psp, "Creates payments / refunds; reconciles status", "HTTPS / JSON, sync")
+Rel(psp, gateway, "Sends signed payment webhooks", "HTTPS / JSON, sync")
+Rel(notifications, messaging, "Submits messages", "HTTPS / JSON, sync")
+
+Rel(users, events, "Publishes preference / contact changes", "AMQPS, async", $tags="async")
+Rel(catalog, events, "Publishes ProductChanged", "AMQPS, async", $tags="async")
+Rel(orders, events, "Publishes order events", "AMQPS, async", $tags="async")
+Rel(payments, events, "Publishes payment / refund results", "AMQPS, async", $tags="async")
+Rel(events, feed, "Delivers products, preferences and order status", "AMQPS, async", $tags="async")
+Rel(events, payments, "Delivers OrderPlaced / OrderCancelled", "AMQPS, async", $tags="async")
+Rel(events, orders, "Delivers payment / refund results", "AMQPS, async", $tags="async")
+Rel(events, notifications, "Delivers order status / contact changes", "AMQPS, async", $tags="async")
+
+Rel(users, usersDb, "Reads / writes owned data", "SQL / TCP, sync")
+Rel(catalog, catalogDb, "Reads / writes owned data", "SQL / TCP, sync")
+Rel(feed, feedDb, "Reads / writes owned data", "SQL / TCP, sync")
+Rel(orders, ordersDb, "Reads / writes owned data", "SQL / TCP, sync")
+Rel(payments, paymentsDb, "Reads / writes owned data", "SQL / TCP, sync")
+Rel(notifications, notificationsDb, "Reads / writes owned data", "SQL / TCP, sync")
+
+SHOW_LEGEND()
+footer All containers are planned. Only Orders Service /health is implemented. Each database has one owning service.
+@enduml
